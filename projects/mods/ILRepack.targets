@@ -1,0 +1,67 @@
+<Project>
+    <Target Name="RepackForBuild" AfterTargets="Build" Condition="'$(LF2IsModEntry)' == 'true'">
+        <CallTarget Targets="_RepackRun" />
+    </Target>
+
+    <Target Name="_RepackPrepare">
+        <ItemGroup>
+            <_KeepPackageRef Include="@(PackageReference)" Condition="'%(PackageReference.LF2KeepItAsIs)' == 'true'" />
+
+            <_KeepPackageName Include="@(_KeepPackageRef->Replace('.', '_'))" />
+
+            <_AllSourceFilesToKeep Include="$(Pkg%(_KeepPackageName.Identity))/lib/*/*.dll" />
+            <_AllSourceFilesToKeep Include="@(Reference->WithMetadataValue('LF2KeepItAsIs', 'true')->'%(FullPath)')" />
+
+            <_DistinctSourceFilesToKeep Remove="@(_DistinctSourceFilesToKeep)" />
+            <_DistinctSourceFilesToKeep Include="@(_AllSourceFilesToKeep)" />
+
+            <KeepFiles Include="@(_AllSourceFilesToKeep->'$(OutputPath)%(Filename)%(Extension)')" />
+            <KeepFiles Include="@(_AllSourceFilesToKeep->'$(OutputPath)%(Filename).pdb')" />
+            <KeepFiles Include="@(_AllSourceFilesToKeep->'$(OutputPath)%(Filename).xml')" />
+        </ItemGroup>
+
+        <Message Text="Files that will be retained in output: @(KeepFiles->'%0a- %(Identity)')" Importance="high" />
+    </Target>
+
+    <Target Name="_RepackRun" DependsOnTargets="_RepackPrepare">
+        <ItemGroup>
+            <_InternalizeExclude Include="$(TargetName)" />
+            <_InputAssemblies Include="$(OutputPath)*.dll" Exclude="@(KeepFiles)" />
+            <_LibraryPath Include="%(ReferencePathWithRefAssemblies.RelativeDir)" />
+        </ItemGroup>
+
+        <ILRepack
+            Parallel="true"
+            Internalize="true"
+            DebugInfo="true"
+            TargetKind="SameAsPrimaryAssembly"
+            InternalizeExclude="@(_InternalizeExclude)"
+            InputAssemblies="@(_InputAssemblies)"
+            LibraryPath="@(_LibraryPath)"
+            OutputFile="$(OutputPath)$(TargetName)$(TargetExt)"
+            AttributeFile="$(OutputPath)$(TargetName)$(TargetExt)"
+        />
+    </Target>
+
+    <Target Name="_RepackClean" AfterTargets="_RepackRun">
+        <ItemGroup>
+            <_FilesToDelete
+                Include="@(ReferenceCopyLocalPaths->'$(OutDir)%(DestinationSubDirectory)%(Filename)%(Extension)')"
+                Exclude="@(KeepFiles)"
+            />
+        </ItemGroup>
+
+        <Delete Files="@(_FilesToDelete)" />
+
+        <ItemGroup>
+            <_Directories
+                Include="$([System.IO.Directory]::GetDirectories('$(OutDir)%(DestinationSubDirectory)', '*', System.IO.SearchOption.AllDirectories))"
+            />
+            <_Directories>
+                <Files>$([System.IO.Directory]::GetFiles("%(_Directories.Identity)", "*", System.IO.SearchOption.AllDirectories).get_Length())</Files>
+            </_Directories>
+        </ItemGroup>
+
+        <RemoveDir Directories="@(_Directories)" Condition="%(Files)=='0'" />
+    </Target>
+</Project>

@@ -1,0 +1,48 @@
+name: On Pre-Merge to Master
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+
+jobs:
+  build-check:
+    name: Build Check
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Set Configuration
+        id: config
+        run: |
+          echo "property_source_project=projects/unmanaged-vendor/game/Taiwu.Backend" >> $GITHUB_OUTPUT
+          echo "relative_artifacts_path=artifacts/bin/*/release" >> $GITHUB_OUTPUT
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Build Solution
+        run: dotnet build -c Release
+
+      - name: Get Full Artifacts Path
+        id: get-path
+        run: |
+          SOURCE_PROJECT="${{ steps.config.outputs.property_source_project }}"
+          RELATIVE_PATH="${{ steps.config.outputs.relative_artifacts_path }}"
+          BASE_DIR=$(dotnet msbuild "$SOURCE_PROJECT" -getProperty:LF2ModsDir)
+          echo "path=$BASE_DIR/$RELATIVE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Upload Mod Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-build-artifacts-pr-${{ github.event.pull_request.number }}
+          path: ${{ steps.get-path.outputs.path }}
+          retention-days: 7

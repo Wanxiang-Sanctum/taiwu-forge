@@ -1,0 +1,154 @@
+name: Pack and Publish Game Libraries
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version for the NuGet packages (e.g., 1.0.0).
+        required: true
+      source:
+        description: The NuGet source URL. Defaults to owner's GitHub Packages.
+        required: false
+
+jobs:
+  pack-and-publish:
+    name: Pack and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+
+    steps:
+      - name: Set Configuration
+        id: config
+        run: |
+          echo "property_source_project=projects/unmanaged-vendor/game/Taiwu.Backend" >> $GITHUB_OUTPUT
+          echo "relative_game_dir=game" >> $GITHUB_OUTPUT
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          restore: false
+
+      - name: Resolve MSBuild Properties
+        id: props
+        run: |
+          set -euo pipefail
+          source_project="${{ steps.config.outputs.property_source_project }}"
+          relative_game_dir="${{ steps.config.outputs.relative_game_dir }}"
+
+          unmanaged_vendor_dir_abs=$(dotnet msbuild "$source_project" -getProperty:LF2UnmanagedVendorDir)
+          nupkg_dir_abs=$(dotnet msbuild "$source_project" -getProperty:LF2NupkgDir)
+
+          if [ -z "$unmanaged_vendor_dir_abs" ] || [ -z "$nupkg_dir_abs" ]; then
+            echo "::error::Failed to retrieve MSBuild properties (LF2UnmanagedVendorDir or LF2NupkgDir)."
+            exit 1
+          fi
+
+          unmanaged_vendor_dir_rel=$(realpath --relative-to=. "$unmanaged_vendor_dir_abs")
+          nupkg_dir_rel=$(realpath --relative-to=. "$nupkg_dir_abs")
+          game_dir_rel="$unmanaged_vendor_dir_rel/$relative_game_dir"
+
+          echo "game_dir=$game_dir_rel" >> $GITHUB_OUTPUT
+          echo "nupkg_dir=$nupkg_dir_rel" >> $GITHUB_OUTPUT
+
+      - name: Unload Other Projects
+        run: |
+          set -euo pipefail
+          game_dir="${{ steps.props.outputs.game_dir }}"
+
+          echo "Unloading projects outside of $game_dir..."
+          dotnet sln list \
+            | grep "\.csproj$" \
+            | grep -v "^$game_dir/" \
+            | xargs -r -I {} dotnet sln remove "{}"
+
+      - name: Download and Extract Game Libraries
+        run: |
+          set -euo pipefail
+
+          download_url="${{ secrets.LF2_GAME_LIBS_URL }}"
+          if [[ -z "$download_url" ]]; then
+            echo "::error::Secret 'LF2_GAME_LIBS_URL' is not set. Please add it to your repository secrets."
+            exit 1
+          fi
+
+          target_dir="${{ steps.props.outputs.game_dir }}"
+          download_zip_name="game-libs.zip"
+
+          echo "Downloading from configured URL..."
+          wget -q -O "$download_zip_name" "$download_url"
+
+          echo "Extracting to $target_dir..."
+          unzip -q -o "$download_zip_name" -d "$target_dir"
+
+      - name: Remove FallbackContent.txt from Non-Empty Lib Dirs
+        run: |
+          set -euo pipefail
+          game_dir="${{ steps.props.outputs.game_dir }}"
+
+          echo "Searching for lib directories in '$game_dir' and cleaning up FallbackContent.txt..."
+
+          find "$game_dir" -type d -name "lib" -print0 | while IFS= read -r -d '' lib_dir; do
+            fallback_file="$lib_dir/FallbackContent.txt"
+            if [ -f "$fallback_file" ]; then
+              if find "$lib_dir" -maxdepth 1 -type f ! -name "FallbackContent.txt" -print -quit | grep -q .; then
+                echo "Removing '$fallback_file' as other files exist in the directory."
+                rm -f "$fallback_file"
+              else
+                echo "Skipping '$lib_dir' as it only contains FallbackContent.txt or is empty."
+              fi
+            fi
+          done
+
+      - name: Pack Libraries
+        run: |
+          set -euo pipefail
+          game_dir="${{ steps.props.outputs.game_dir }}"
+          version="${{ github.event.inputs.version }}"
+
+          echo "Packing projects in $game_dir..."
+          dotnet sln list \
+            | grep "\.csproj$" \
+            | grep "^$game_dir/" \
+            | while IFS= read -r project_file; do
+                dotnet pack "$project_file" \
+                  -c Release \
+                  -p:Version="$version" \
+                  -p:PackageVersion="$version"
+              done
+
+      - name: Publish to NuGet Source
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event.inputs.source }}" ]]; then
+            source_url="${{ github.event.inputs.source }}"
+          else
+            source_url="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          fi
+
+          if [[ -n "${{ secrets.LF2_NUGET_API_KEY }}" ]]; then
+            api_key="${{ secrets.LF2_NUGET_API_KEY }}"
+          else
+            api_key="${{ github.token }}"
+          fi
+
+          nupkg_dir="${{ steps.props.outputs.nupkg_dir }}"
+
+          echo "Publishing packages from $nupkg_dir to $source_url..."
+          find "$nupkg_dir" \
+            -name "*.nupkg" \
+            -type f \
+            -print0 \
+          | while IFS= read -r -d $'\0' nupkg_file; do
+              dotnet nuget push "$nupkg_file" \
+                --api-key "$api_key" \
+                --source "$source_url" \
+                --skip-duplicate
+            done
