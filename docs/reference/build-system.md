@@ -8,17 +8,25 @@
 
 如果你需要进行深度定制（例如，在 `.csproj` 中添加自定义构建逻辑），可以直接查阅这些 `.props` 文件来了解所有可用的变量。
 
-## 关于二进制依赖的范围
+## 处理缺失的游戏依赖
 
-请注意，通过 NuGet 包（如 `LF2.Taiwu.Backend`）引用的游戏库是为适配当前仓库中的 Mod 而精心筛选的。如果你在开发中发现缺少某个游戏 API，则可能需要自行引用包含该 API 的其他游戏程序集。
+请注意，本模板通过 `game-libs.manifest.yaml` 提供的依赖包已覆盖绝大部分开发场景，但并未包含游戏目录下的全部程序集。
+
+如果你在开发中发现缺少某个游戏 API，这意味着其所在的程序集尚未被打包。正确的做法是更新 `game-libs.manifest.yaml` 文件，将缺失的程序集添加到打包列表中，并重新生成 NuGet 包。
+
+不建议在项目文件中直接通过文件路径引用 DLL，因为这会绕过模板提供的依赖管理机制。
+
+关于如何更新清单并重新打包，请参阅《[游戏依赖打包参考手册](./game-libs-packaging.md)》。
 
 ## 打包 Mod
 
-模板在 `projects/mods/LF2Mod.targets` 中提供了 `LF2PublishMod` 目标，用来将指定的 Mod 项目打包成游戏识别的目录结构。运行以下命令即可触发打包流程，其中 `LF2Mod` 参数填写你的 Mod 目录名：
+模板在 `projects/mods/LF2Mod.targets` 中提供了 `LF2PublishMod` 目标，用来将指定的 Mod 项目打包成游戏识别的目录结构。
 
 ```bash
-dotnet build -t:LF2PublishMod -p LF2Mod=my-mod
+dotnet build -c Release -t:LF2PublishMod -p:LF2Mod=<mod-name>
 ```
+
+使用 `-c Release` 参数是触发 `ILRepack` 工具执行的关键。在 `Release` 模式下，构建系统会自动将所有必要的依赖项 DLL 合并到你的 Mod 主程序集中，生成一个独立的、不会与其他 Mod 产生依赖冲突的文件。
 
 命令会同时编译前端与后端插件，并将生成的 Mod 包写入仓库根目录的 `.lf2.publish/` 中，方便直接复制到游戏的 Mods 目录或用于后续发版操作。
 
