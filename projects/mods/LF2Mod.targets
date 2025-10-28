@@ -1,0 +1,71 @@
+<Project>
+    <Target Name="LF2PublishMod">
+        <PropertyGroup>
+            <_ModDir>$(MSBuildThisFileDirectory)$(LF2Mod)</_ModDir>
+            <_ArtifactsDir>$(MSBuildThisFileDirectory)artifacts</_ArtifactsDir>
+            <_PublishDir>$(LF2PublishDir)/$(LF2Mod)</_PublishDir>
+
+            <_cfg>$(Configuration.ToLowerInvariant())</_cfg>
+        </PropertyGroup>
+
+        <Message Text="[LF2Mod] Publishing '$(LF2Mod)'..." Importance="high" />
+
+        <ItemGroup Condition="'$(LF2Mod)' != ''">
+            <_Projects Include="$(_ModDir)/**/*.csproj" />
+        </ItemGroup>
+
+        <Error
+            Text="No Projects found under '$(_ModDir)'. Ensure LF2Mod is set correctly (e.g., /p:LF2Mod=MyMod)."
+            Condition="'@(_Projects)' == ''"
+        />
+
+        <MSBuild
+            Projects="@(_Projects)"
+            Targets="Build"
+            Properties="
+                Configuration=$(Configuration);
+                Version=$(Version)
+            "
+        />
+
+        <RemoveDir Directories="$(_PublishDir)" />
+        <MakeDir Directories="$(_PublishDir)" />
+        <MakeDir Directories="$(_PublishDir)/Plugins" />
+
+        <ItemGroup>
+            <_SourceCodeDirsToExclude Include="@(_Projects->'%(RootDir)%(Directory)')" />
+            <_ModResources
+                Include="$(_ModDir)/**/*.*"
+                Exclude="@(_SourceCodeDirsToExclude->'%(Identity)**/*.*')"
+            />
+        </ItemGroup>
+
+        <Copy
+            SourceFiles="@(_ModResources)"
+            DestinationFolder="$(_PublishDir)/%(RecursiveDir)"
+        />
+
+        <ItemGroup>
+            <_ProjectNames Include="@(_Projects->'%(Filename)')" />
+
+            <_ModOutputSet
+                Include="@(_ProjectNames->'$(_ArtifactsDir)/bin/%(Identity)/$(_cfg)/**/*.*')"
+                Condition="Exists('$(_ArtifactsDir)/bin/%(Identity)/$(_cfg)')"
+            />
+        </ItemGroup>
+
+        <CreateItem Include="@(_ModOutputSet)">
+            <Output
+                TaskParameter="Include"
+                ItemName="_ModOutput"
+            />
+        </CreateItem>
+
+        <Copy
+            SourceFiles="@(_ModOutput)"
+            DestinationFolder="$(_PublishDir)/Plugins/%(RecursiveDir)"
+        />
+
+        <Message Text="[LF2Mod] Successfully published '$(LF2Mod)' to '$(_PublishDir)'" Importance="high" />
+    </Target>
+</Project>

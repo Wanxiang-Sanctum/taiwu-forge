@@ -1,0 +1,143 @@
+name: Publish Game Libraries
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version for the NuGet packages (e.g., 1.0.0).
+        required: true
+      source:
+        description: The NuGet source URL. Defaults to owner's GitHub Packages.
+        required: false
+
+jobs:
+  pack-and-publish:
+    name: Pack and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Configuration
+        id: config
+        run: |
+          set -euo pipefail
+
+          sln_file="game.slnx"
+          sln_root_dir="projects/unmanaged-vendor/game"
+          property_source_project_abs=$(find "$sln_root_dir" -type f -name '*.csproj' -print -quit)
+          if [ -z "$property_source_project_abs" ]; then
+            echo "::error::Required project files were not found under '$sln_root_dir'."
+            exit 1
+          fi
+
+          property_source_project_rel=$(realpath --relative-to="$sln_root_dir" "$property_source_project_abs")
+
+          {
+            echo "sln_file=$sln_file"
+            echo "sln_root_dir=$sln_root_dir"
+            echo "property_source_project=$property_source_project_rel"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+
+      - name: Resolve MSBuild Properties
+        id: props
+        run: |
+          set -euo pipefail
+          repo_root="$(pwd)"
+          sln_root_dir="${{ steps.config.outputs.sln_root_dir }}"
+          source_project="${{ steps.config.outputs.property_source_project }}"
+
+          nupkg_dir_abs=$(
+            cd "$sln_root_dir" && \
+            dotnet msbuild "$source_project" -getProperty:LF2NupkgDir
+          )
+
+          if [ -z "$nupkg_dir_abs" ]; then
+            echo "::error::Failed to retrieve MSBuild property 'LF2NupkgDir'."
+            exit 1
+          fi
+
+          mkdir -p "$nupkg_dir_abs"
+
+          game_dir_abs=$(realpath "$sln_root_dir")
+          nupkg_dir_abs=$(realpath "$nupkg_dir_abs")
+          game_dir_rel=$(realpath --relative-to="$repo_root" "$game_dir_abs")
+          nupkg_dir_rel=$(realpath --relative-to="$repo_root" "$nupkg_dir_abs")
+
+          {
+            echo "game_dir=$game_dir_rel"
+            echo "nupkg_dir=$nupkg_dir_rel"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download and Extract Game Libraries
+        run: |
+          set -euo pipefail
+
+          download_url="${{ secrets.LF2_GAME_LIBS_URL }}"
+          if [[ -z "$download_url" ]]; then
+            echo "::error::Secret 'LF2_GAME_LIBS_URL' is not set. Please add it to your repository secrets."
+            exit 1
+          fi
+
+          target_dir="${{ steps.props.outputs.game_dir }}"
+          download_zip_name="game-libs.zip"
+
+          echo "Downloading from configured URL..."
+          wget -q -O "$download_zip_name" "$download_url"
+
+          echo "Extracting to $target_dir..."
+          unzip -q -o "$download_zip_name" -d "$target_dir"
+
+      - name: Pack Libraries
+        run: |
+          set -euo pipefail
+
+          version="${{ github.event.inputs.version }}"
+          sln_file="${{ steps.config.outputs.sln_file }}"
+          sln_root_dir="${{ steps.config.outputs.sln_root_dir }}"
+
+          echo "Packing unmanaged vendor projects..."
+
+          dotnet build "$sln_root_dir/$sln_file" \
+              -t:LF2PackGameLibs \
+              -c Release \
+              -p:Version="$version" \
+
+      - name: Publish to NuGet Source
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event.inputs.source }}" ]]; then
+            source_url="${{ github.event.inputs.source }}"
+          else
+            source_url="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          fi
+
+          if [[ -n "${{ secrets.LF2_NUGET_API_KEY }}" ]]; then
+            api_key="${{ secrets.LF2_NUGET_API_KEY }}"
+          else
+            api_key="${{ github.token }}"
+          fi
+
+          nupkg_dir="${{ steps.props.outputs.nupkg_dir }}"
+
+          echo "Publishing packages from $nupkg_dir to $source_url..."
+          find "$nupkg_dir" \
+            -name "*.nupkg" \
+            -type f \
+            -print0 \
+          | while IFS= read -r -d $'\0' nupkg_file; do
+              dotnet nuget push "$nupkg_file" \
+                --api-key "$api_key" \
+                --source "$source_url" \
+                --skip-duplicate
+            done

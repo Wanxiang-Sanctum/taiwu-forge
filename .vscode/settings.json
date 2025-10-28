@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.slnx": "xml",
+    },
+    "xml.format.emptyElements": "collapse",
+    "xml.format.maxLineWidth": 0,
+    "xml.validation.enabled": false,
+}

@@ -1,0 +1,32 @@
+<Project>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+        <LF2RoslynatorVersion>4.14.1</LF2RoslynatorVersion>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageVersion Include="PolySharp" Version="1.15.0" />
+        <PackageVersion Include="Roslynator.Analyzers" Version="$(LF2RoslynatorVersion)" />
+        <PackageVersion Include="Roslynator.CodeAnalysis.Analyzers" Version="$(LF2RoslynatorVersion)" />
+        <PackageVersion Include="Roslynator.Formatting.Analyzers" Version="$(LF2RoslynatorVersion)" />
+        <PackageVersion Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44" />
+        <PackageVersion Include="Krafs.Publicizer" Version="2.3.0" />
+        <PackageVersion Include="LF2.Transil" Version="0.0.2" />
+        <PackageVersion Include="YamlDotNet" Version="16.3.0" />
+        <PackageVersion Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="16.3.0" />
+        <PackageVersion Include="System.CommandLine" Version="2.0.0-rc.2.25502.107" />
+
+        <PackageVersion Include="LF2.UniTask" Version="$(LF2UniTaskVersion)-$(LF2TaiwuUnityVersion)" />
+
+        <PackageVersion Include="LF2.Taiwu.Modding" Version="$(LF2TaiwuVersion)" />
+        <PackageVersion Include="LF2.Taiwu.Backend" Version="$(LF2TaiwuVersion)" />
+        <PackageVersion Include="LF2.Taiwu.Frontend" Version="$(LF2TaiwuVersion)" />
+        <PackageVersion Include="LF2.Taiwu.Shared" Version="$(LF2TaiwuVersion)" />
+
+        <PackageVersion Include="LF2.Taiwu.BepInEx" Version="$(LF2TaiwuVersion)" />
+
+        <PackageVersion Include="LF2.Taiwu.Unity.Core" Version="$(LF2TaiwuVersion)" />
+        <PackageVersion Include="LF2.Taiwu.Newtonsoft.Json" Version="$(LF2TaiwuVersion)" />
+        <PackageVersion Include="LF2.Taiwu.Redzen" Version="$(LF2TaiwuVersion)" />
+    </ItemGroup>
+</Project>

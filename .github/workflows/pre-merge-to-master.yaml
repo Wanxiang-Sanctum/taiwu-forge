@@ -1,0 +1,68 @@
+name: On Pre-Merge to Master
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [master]
+
+jobs:
+  detect-solutions:
+    name: Detect Solutions
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Collect Solution Files
+        id: collect
+        run: |
+          set -euo pipefail
+          mapfile -t solutions < <(find . -type f -name '*.slnx' -print | sort)
+          if [ "${#solutions[@]}" -eq 0 ]; then
+            echo "::error::No .slnx files found."
+            exit 1
+          fi
+          matrix_json=$(printf '%s\n' "${solutions[@]}" | jq -R -s -c '
+            def is_root_solution:
+              (ltrimstr("./") | contains("/") | not);
+            {
+              include: (split("\n")
+                | map(select(length > 0))
+                | map({
+                    solution: .,
+                    use_mod_env: (. | is_root_solution)
+                  }))
+            }')
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  build-check:
+    name: Build Check (${{ matrix.solution }})
+    needs: detect-solutions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      matrix: ${{ fromJSON(needs.detect-solutions.outputs.matrix) }}
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Prepare Mod Environment
+        if: ${{ matrix.use_mod_env }}
+        uses: ./.github/actions/setup-mod-env
+
+      - name: Prepare .NET Environment
+        if: ${{ !matrix.use_mod_env }}
+        uses: actions/setup-dotnet@v5
+
+      - name: Build Solution
+        run: |
+          set -euo pipefail
+          dotnet build "${{ matrix.solution }}" -c Release
